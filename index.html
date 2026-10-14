@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content="Enigma I в браузере: настройте роторы и обменяйтесь игровым шифртекстом. Без регистрации и сохранения сообщений." />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>Энигма — шифр для двоих</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232d2926'/%3E%3Cpath d='M20 17h26v6H27v6h15v6H27v6h19v6H20z' fill='%23f5f2eb'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./" aria-label="Энигма — главная">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ЭНИГМА<span class="brand-edition">I / 1930</span></span>
+        </a>
+        <span class="privacy-note"><span class="status-dot" aria-hidden="true"></span>Всё вычисляется в браузере</span>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <div>
+            <p class="eyebrow">Маленькая машина. Большая загадка.</p>
+            <h1 id="page-title">Шифр для двоих.</h1>
+            <p class="intro-text">Задайте общий ключ, напишите сообщение и передайте шифртекст.<br class="desktop-break" /> Чтобы прочитать его, нужны те же настройки.</p>
+          </div>
+          <div class="machine-badge" aria-label="Enigma I: 3 ротора, рефлектор B">
+            <span>ENIGMA I</span>
+            <strong aria-hidden="true">A · A · A</strong>
+            <span>3 РОТОРА / РЕФЛЕКТОР B</span>
+          </div>
+        </section>
+
+        <div class="warning" role="note"><span aria-hidden="true">!</span><p>Исторический шифр для игр и экспериментов. <strong>Не используйте для настоящих секретов.</strong></p></div>
+
+        <div class="workspace">
+          <section class="panel key-panel" aria-labelledby="key-title">
+            <div class="panel-heading">
+              <div class="heading-label"><span class="section-number" aria-hidden="true">01</span><h2 id="key-title">Ваш ключ</h2></div>
+              <span class="reflector-chip" title="Фиксированный рефлектор B">Рефлектор B</span>
+            </div>
+            <p class="section-help">Роторы расположены слева направо. Каждый используется только один раз.</p>
+
+            <div class="rotor-grid" id="rotor-settings">
+              <fieldset class="rotor-card">
+                <legend>Левый</legend>
+                <label for="rotor-0">Ротор</label>
+                <select id="rotor-0" name="rotor-left" aria-describedby="key-error"><option>I</option><option>II</option><option>III</option><option>IV</option><option>V</option></select>
+                <label for="ring-0">Кольцо</label><select id="ring-0" name="ring-left" class="letter-select" aria-describedby="rings-help"></select>
+                <label for="position-0">Старт</label><select id="position-0" name="position-left" class="letter-select" aria-describedby="positions-help"></select>
+              </fieldset>
+              <fieldset class="rotor-card">
+                <legend>Средний</legend>
+                <label for="rotor-1">Ротор</label>
+                <select id="rotor-1" name="rotor-middle" aria-describedby="key-error"><option>I</option><option selected>II</option><option>III</option><option>IV</option><option>V</option></select>
+                <label for="ring-1">Кольцо</label><select id="ring-1" name="ring-middle" class="letter-select" aria-describedby="rings-help"></select>
+                <label for="position-1">Старт</label><select id="position-1" name="position-middle" class="letter-select" aria-describedby="positions-help"></select>
+              </fieldset>
+              <fieldset class="rotor-card">
+                <legend>Правый</legend>
+                <label for="rotor-2">Ротор</label>
+                <select id="rotor-2" name="rotor-right" aria-describedby="key-error"><option>I</option><option>II</option><option selected>III</option><option>IV</option><option>V</option></select>
+                <label for="ring-2">Кольцо</label><select id="ring-2" name="ring-right" class="letter-select" aria-describedby="rings-help"></select>
+                <label for="position-2">Старт</label><select id="position-2" name="position-right" class="letter-select" aria-describedby="positions-help"></select>
+              </fieldset>
+            </div>
+            <p class="setting-hint" id="rings-help">Кольцо: A = 01, …, Z = 26.</p>
+            <p class="sr-only" id="positions-help">Старт — исходная буква в окошке ротора. Обработка каждого полного сообщения начинается с этих позиций.</p>
+
+            <div class="plugboard-field">
+              <label for="plugboard">Коммутационная панель <span>необязательно</span></label>
+              <input id="plugboard" type="text" placeholder="AB CD EF" maxlength="29" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-describedby="plugboard-help key-error" />
+              <p class="setting-hint" id="plugboard-help">До 10 пар A–Z через пробел. Буквы не повторяются.</p>
+            </div>
+            <p class="error-message" id="key-error" role="alert" hidden></p>
+            <div class="key-buttons">
+              <button id="random-key" class="button button-dark" type="button"><span aria-hidden="true">⤨</span> Случайный ключ</button>
+              <button id="reset-key" class="button button-quiet" type="button">Сбросить</button>
+            </div>
+            <div class="key-files">
+              <button id="export-key" class="text-button" type="button"><span aria-hidden="true">↓</span> Экспорт ключа</button>
+              <button id="import-key" class="text-button" type="button"><span aria-hidden="true">↑</span> Импорт ключа</button>
+              <input id="key-file" type="file" accept=".json,application/json" hidden />
+            </div>
+            <p class="setting-hint file-hint">JSON содержит только настройки. Передавайте ключ отдельно от шифртекста.</p>
+            <p class="action-status" id="key-status" role="status" aria-live="polite"></p>
+          </section>
+
+          <section class="panel message-panel" aria-labelledby="message-title">
+            <div class="panel-heading">
+              <div class="heading-label"><span class="section-number" aria-hidden="true">02</span><h2 id="message-title">Сообщение</h2></div>
+              <span class="live-label">С исходных позиций</span>
+            </div>
+            <fieldset class="mode-switch">
+              <legend class="sr-only">Операция</legend>
+              <label><input type="radio" name="mode" value="encrypt" checked /><span>Зашифровать</span></label>
+              <label><input type="radio" name="mode" value="decrypt" /><span>Расшифровать</span></label>
+            </fieldset>
+
+            <div class="text-label-row">
+              <label for="message" id="input-label">Исходный текст</label>
+              <div class="small-actions"><button id="sample-text" class="text-button" type="button">Пример</button><button id="clear-text" class="text-button" type="button">Очистить</button></div>
+            </div>
+            <textarea id="message" rows="4" maxlength="10000" placeholder="Например, HELLO WORLD" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-describedby="message-rules input-error"></textarea>
+            <div class="text-meta"><p id="message-rules">A–Z → верхний регистр. Пробелы, цифры и знаки сохраняются и не двигают роторы.</p><span id="input-count" aria-label="Количество символов">0 / 10 000</span></div>
+            <label class="checkbox-label" for="transliterate"><input type="checkbox" id="transliterate" /><span>Перевести русский текст в латиницу<span class="checkbox-help">Исходное русское написание не восстановится.</span></span></label>
+            <p class="error-message" id="input-error" role="alert" hidden></p>
+
+            <div class="output-heading"><label for="result" id="output-label">Шифртекст</label><span class="output-caption" id="output-caption">Тот же ключ → обратное преобразование</span></div>
+            <textarea id="result" rows="4" readonly placeholder="Здесь появится результат" spellcheck="false" aria-describedby="output-caption" autocomplete="off"></textarea>
+            <div class="result-actions">
+              <button id="copy-result" class="button button-outline" type="button" disabled>Копировать</button>
+              <button id="reuse-result" class="button button-quiet" type="button" disabled title="Подставить результат и переключить операцию">Обратно <span aria-hidden="true">↶</span></button>
+              <button id="share-telegram" class="button button-accent" type="button" disabled>В Telegram <span aria-hidden="true">↗</span></button>
+            </div>
+            <p class="share-help" id="share-help">Введите сообщение, чтобы поделиться шифртекстом.</p>
+            <p class="action-status" id="message-status" role="status" aria-live="polite"></p>
+          </section>
+        </div>
+
+        <details class="instructions">
+          <summary><span>Как это работает</span><span class="summary-plus" aria-hidden="true">+</span></summary>
+          <div class="instructions-body">
+            <div><h3>Один ключ у обоих</h3><p>Согласуйте порядок роторов, кольца, стартовые позиции и пары панели. Удобно экспортировать настройки в JSON и передать его отдельно. Получатель импортирует ключ и вставляет шифртекст в режиме «Расшифровать».</p></div>
+            <div><h3>Каждый раз с начала</h3><p>Ввод и изменение ключа сразу пересчитывают всё сообщение с исходных позиций. Шифрование и расшифровка — одна операция. Режим меняет подписи и разрешает делиться только шифртекстом.</p></div>
+            <div><h3>История с удобствами</h3><p>Enigma I: три разных ротора I–V, рефлектор B, кольца и двойной шаг. Регистр теряется. Сохранение пробелов, цифр и знаков, а также транслитерация — удобства этой страницы, которых не было у машины.</p></div>
+            <div><h3>Только по вашему действию</h3><p>Сообщения и ключ не сохраняются. Ввод ничего не отправляет в сеть. Telegram получает только результат и публичную ссылку сайта: чат выбираете и отправку подтверждаете вы. Ключ и исходный текст в ссылку не входят.</p></div>
+          </div>
+        </details>
+      </main>
+      <footer><span>ENIGMA I · историческая игровая модель</span><span>Без бота, регистрации и аналитики</span></footer>
+    </div>
+    <noscript><div class="noscript">Для работы Энигмы включите JavaScript. Все вычисления выполняются локально в браузере.</div></noscript>
+  </body>
+</html>
