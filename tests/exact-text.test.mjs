@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ALPHABET, DEFAULT_SETTINGS, transform, buildTelegramShareUrl } from '../enigma.js';
+import { transformExperimental } from '../experimental.js';
 import {
   EXACT_FORMAT_VERSION, EXACT_PREFIX, MAX_EXACT_BYTES, MAX_EXACT_CIPHERTEXT_LENGTH,
+  EXPERIMENTAL_EXACT_PREFIX, MAX_EXPERIMENTAL_EXACT_CIPHERTEXT_LENGTH, getExactCiphertextLimit,
   utf8ByteLength, encryptExact, decryptExact,
 } from '../exact-text.js';
 
@@ -42,6 +44,31 @@ function pairsFor(bytes) {
 
 function containerFor(frame, settings = key) {
   return EXACT_PREFIX + transform(pairsFor(frame), settings);
+}
+
+function experimentalKey(count = 30) {
+  const baseWiring = 'EKMFLGDQVZNTOWYHXUSPAIBRCJ';
+  return {
+    rotors: Array.from({ length: count }, (_, index) => {
+      const base = index < 26 ? baseWiring : [...baseWiring].reverse().join('');
+      const offset = index % 26;
+      return { wiring: base.slice(offset) + base.slice(0, offset), ring: ALPHABET[offset], position: index === 0 ? 'Q' : 'Z' };
+    }),
+    reflector: 'B', stepping: 'odometer-v1', plugboard: 'AB CD EF GH IJ KL MN OP QR ST',
+  };
+}
+
+const experimentalOptions = { machine: 'experimental' };
+
+function experimentalFrameFor(bytes) {
+  const frame = frameFor(bytes);
+  frame.write('EXU8', 0, 'ascii');
+  refreshChecksum(frame);
+  return frame;
+}
+
+function experimentalContainerFor(frame, settings) {
+  return EXPERIMENTAL_EXACT_PREFIX + transformExperimental(pairsFor(frame), settings);
 }
 
 test('exact transport has explicit version and derived byte/letter bounds', () => {
@@ -238,4 +265,124 @@ test('Telegram exact share contains only encrypted container and clean public li
   assert.equal(url.searchParams.get('url'), site);
   assert.equal(url.href.includes(encodeURIComponent(text)), false);
   for (const field of ['plugboard', 'positions', 'rings', 'rotors']) assert.equal(url.href.includes(field), false);
+});
+
+test('classic exact containers remain byte-for-byte compatible with stage1 fixtures', () => {
+  assert.equal(encryptExact(''), 'ENIGMA-UTF8-1:QCEFIJAYLKKSBTMCDLHFZYUCCT');
+  const text = 'Ёжик, ёлка! Mixed Case🙂\r\n';
+  const fixture = 'ENIGMA-UTF8-1:QCEFIJAYLKKSBTMCLPDBYMVOZXFHRUZGNXOJLXKQNCRIRGOHNVYXEZLRVLWMMGPUWKVMCJLJFSDGCEHKJIUJRLCLZNDWFSPRPN';
+  assert.equal(encryptExact(text), fixture);
+  assert.equal(encryptExact(text, undefined, { machine: 'classic' }), fixture);
+  assert.equal(decryptExact(fixture), text);
+});
+
+test('experimental exact prefix and limit are distinct and machine selection is explicit', () => {
+  assert.equal(EXPERIMENTAL_EXACT_PREFIX, 'ENIGMA-X-UTF8-1:');
+  assert.equal(MAX_EXPERIMENTAL_EXACT_CIPHERTEXT_LENGTH, 20042);
+  assert.equal(getExactCiphertextLimit(), MAX_EXACT_CIPHERTEXT_LENGTH);
+  assert.equal(getExactCiphertextLimit('classic'), MAX_EXACT_CIPHERTEXT_LENGTH);
+  assert.equal(getExactCiphertextLimit('experimental'), MAX_EXPERIMENTAL_EXACT_CIPHERTEXT_LENGTH);
+  for (const machine of ['__proto__', 'constructor', 'Classic', '', 3, null, {}]) {
+    assert.throws(() => getExactCiphertextLimit(machine), /Неизвестная машина/);
+    assert.throws(() => encryptExact('A', key, { machine }), /Неизвестная машина/);
+    assert.throws(() => decryptExact(encryptExact('A'), key, { machine }), /Неизвестная машина/);
+  }
+  for (const options of [null, false, [], 'experimental', { mode: 'experimental' }]) {
+    assert.throws(() => encryptExact('A', key, options), /Параметры точного текста/);
+  }
+});
+
+test('experimental exact text round trips mixed Unicode with 3 and 30 rotors', () => {
+  const text = '\uFEFFЁжик и ёлка! Mixed CASE e\u0301 Е\u0308 👩🏽‍💻 🙂\r\n\r\n中文\r\t  \u0000\n';
+  for (const count of [3, 30]) {
+    const settings = experimentalKey(count);
+    const original = structuredClone(settings);
+    const ciphertext = encryptExact(text, settings, experimentalOptions);
+    assert.match(ciphertext, /^ENIGMA-X-UTF8-1:[A-Z]+$/);
+    assert.equal(decryptExact(ciphertext, settings, experimentalOptions), text);
+    assert.equal(encryptExact(text, settings, experimentalOptions), ciphertext);
+    assert.deepEqual(settings, original);
+  }
+});
+
+test('experimental empty text has valid own magic, checksum and 42-character envelope', () => {
+  const settings = experimentalKey();
+  const ciphertext = encryptExact('', settings, experimentalOptions);
+  assert.equal(ciphertext.length, 42);
+  assert.equal(ciphertext, experimentalContainerFor(experimentalFrameFor([]), settings));
+  assert.equal(decryptExact(ciphertext, settings, experimentalOptions), '');
+  assert.throws(() => encryptExact('A', undefined, experimentalOptions));
+  assert.throws(() => decryptExact(ciphertext, undefined, experimentalOptions));
+});
+
+test('experimental 30-rotor exact boundary supports 10000 bytes and rejects 10001', () => {
+  const settings = experimentalKey();
+  for (const text of ['A'.repeat(10000), 'ё'.repeat(5000), '🙂'.repeat(2500)]) {
+    const ciphertext = encryptExact(text, settings, experimentalOptions);
+    assert.equal(ciphertext.length, MAX_EXPERIMENTAL_EXACT_CIPHERTEXT_LENGTH);
+    assert.equal(decryptExact(ciphertext, settings, experimentalOptions), text);
+    assert.throws(() => encryptExact(text + 'A', settings, experimentalOptions), /байт UTF-8/);
+  }
+});
+
+test('classic and experimental containers reject cross-mode decoding before settings access', () => {
+  const settings = experimentalKey();
+  const classic = encryptExact('Ёж');
+  const experimental = encryptExact('Ёж', settings, experimentalOptions);
+  const unreadableSettings = { get rotors() { throw new Error('engine must not run'); } };
+  assert.throws(() => decryptExact(classic, unreadableSettings, experimentalOptions), decodeError);
+  assert.throws(() => decryptExact(experimental, unreadableSettings), decodeError);
+});
+
+test('correct outer prefix cannot hide opposite inner machine magic even with valid CRC', () => {
+  const settings = experimentalKey();
+  const bytes = Buffer.from('Text');
+  // Both payloads have a fresh valid checksum and use the selected machine.
+  // Only the opposite machine magic distinguishes them from valid containers.
+  assert.throws(() => decryptExact(experimentalContainerFor(frameFor(bytes), settings), settings, experimentalOptions), decodeError);
+  assert.throws(() => decryptExact(containerFor(experimentalFrameFor(bytes)), key), decodeError);
+});
+
+test('experimental wrong keys and modified ciphertext fail without partial plaintext', () => {
+  const settings = experimentalKey();
+  const ciphertext = encryptExact('Исходное Ё 🙂\r\n', settings, experimentalOptions);
+  for (const wrong of [
+    { ...settings, rotors: settings.rotors.slice(0, 3) },
+    { ...settings, plugboard: '' },
+    { ...settings, rotors: settings.rotors.map((rotor, index) => index === 29 ? { ...rotor, position: 'A' } : rotor) },
+  ]) assert.throws(() => decryptExact(ciphertext, wrong, experimentalOptions), decodeError);
+  for (let index = EXPERIMENTAL_EXACT_PREFIX.length; index < ciphertext.length; index += 1) {
+    const damaged = ciphertext.slice(0, index) + (ciphertext[index] === 'A' ? 'B' : 'A') + ciphertext.slice(index + 1);
+    assert.throws(() => decryptExact(damaged, settings, experimentalOptions), decodeError);
+  }
+});
+
+test('experimental oversized input rejects before byte allocation or selected engine', (t) => {
+  const oversized = EXPERIMENTAL_EXACT_PREFIX + 'A'.repeat(20028);
+  t.mock.method(globalThis, 'Uint8Array', class { constructor() { throw new Error('allocation must not run'); } });
+  t.mock.method(globalThis, 'TextDecoder', class { constructor() { throw new Error('decoder must not run'); } });
+  const unreadableSettings = { get rotors() { throw new Error('engine must not run'); } };
+  assert.throws(() => decryptExact(oversized, unreadableSettings, experimentalOptions), decodeError);
+});
+
+test('experimental valid checksum does not allow bad UTF-8 or false lengths', () => {
+  const settings = experimentalKey();
+  const invalidUtf8 = experimentalFrameFor([0xED, 0xA0, 0x80]);
+  assert.throws(() => decryptExact(experimentalContainerFor(invalidUtf8, settings), settings, experimentalOptions), decodeError);
+  const falseLength = experimentalFrameFor([65]);
+  falseLength.writeUInt32BE(0xFFFFFFFF, 5);
+  refreshChecksum(falseLength);
+  assert.throws(() => decryptExact(experimentalContainerFor(falseLength, settings), settings, experimentalOptions), decodeError);
+});
+
+test('experimental Telegram share includes only encrypted container and public site', () => {
+  const text = 'Исходный русский текст Ё🙂';
+  const ciphertext = encryptExact(text, experimentalKey(), experimentalOptions);
+  const site = 'https://nursultannurmukhamet.github.io/enigma/';
+  const url = new URL(buildTelegramShareUrl(ciphertext, site));
+  assert.deepEqual([...url.searchParams.keys()], ['url', 'text']);
+  assert.equal(url.searchParams.get('text'), ciphertext);
+  assert.equal(url.searchParams.get('url'), site);
+  assert.equal(url.href.includes(encodeURIComponent(text)), false);
+  for (const field of ['wiring', 'position', 'ring', 'rotors', 'plugboard']) assert.equal(url.href.includes(field), false);
 });

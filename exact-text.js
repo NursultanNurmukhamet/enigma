@@ -1,21 +1,55 @@
 /**
- * Reversible UTF-8 transport around historical Enigma I, NOT a historical mode.
+ * Reversible UTF-8 transport around Enigma I or the experimental rotor machine.
+ * This transport is NOT a historical Enigma feature.
  * No normalization, transliteration, persistence, randomness or network access.
  * CRC32 detects accidental damage/wrong keys; it is NOT authentication.
  */
-import { ALPHABET, DEFAULT_SETTINGS, transform } from './enigma.js';
+import { ALPHABET, transform } from './enigma.js';
+import { transformExperimental } from './experimental.js';
 
 export const EXACT_FORMAT_VERSION = 1;
 export const EXACT_PREFIX = `ENIGMA-UTF8-${EXACT_FORMAT_VERSION}:`;
+export const EXPERIMENTAL_EXACT_PREFIX = `ENIGMA-X-UTF8-${EXACT_FORMAT_VERSION}:`;
 export const MAX_EXACT_BYTES = 10000;
 
 // Encrypted frame: EGU8 | version:u8 | UTF-8 length:u32be | bytes | CRC32:u32be.
 // CRC covers all preceding frame bytes (magic, version, length and message).
-const MAGIC = [0x45, 0x47, 0x55, 0x38];
 const HEADER_BYTES = 9;
 const CHECKSUM_BYTES = 4;
 const FRAME_OVERHEAD = HEADER_BYTES + CHECKSUM_BYTES;
 export const MAX_EXACT_CIPHERTEXT_LENGTH = EXACT_PREFIX.length + 2 * (FRAME_OVERHEAD + MAX_EXACT_BYTES);
+export const MAX_EXPERIMENTAL_EXACT_CIPHERTEXT_LENGTH = EXPERIMENTAL_EXACT_PREFIX.length + 2 * (FRAME_OVERHEAD + MAX_EXACT_BYTES);
+
+const MACHINES = {
+  classic: {
+    prefix: EXACT_PREFIX, magic: [0x45, 0x47, 0x55, 0x38], // EGU8
+    limit: MAX_EXACT_CIPHERTEXT_LENGTH, transform,
+  },
+  experimental: {
+    prefix: EXPERIMENTAL_EXACT_PREFIX, magic: [0x45, 0x58, 0x55, 0x38], // EXU8
+    limit: MAX_EXPERIMENTAL_EXACT_CIPHERTEXT_LENGTH, transform: transformExperimental,
+  },
+};
+
+function machineProfile(machine) {
+  if (typeof machine !== 'string' || !Object.hasOwn(MACHINES, machine)) {
+    throw new Error('Неизвестная машина: выберите classic или experimental.');
+  }
+  return MACHINES[machine];
+}
+
+function optionsProfile(options) {
+  if (!options || typeof options !== 'object' || Array.isArray(options) ||
+      Object.keys(options).some((field) => field !== 'machine')) {
+    throw new Error('Параметры точного текста: допустимо только поле machine.');
+  }
+  return machineProfile(options.machine === undefined ? 'classic' : options.machine);
+}
+
+/** Per-machine bound. Cross-mode containers are never implicitly accepted. */
+export function getExactCiphertextLimit(machine = 'classic') {
+  return machineProfile(machine).limit;
+}
 
 const DECRYPT_ERROR = 'Не удалось расшифровать точный текст: неверный ключ или повреждённый формат.';
 const SIZE_ERROR = `Точный текст: не более ${MAX_EXACT_BYTES.toLocaleString('ru-RU')} байт UTF-8.`;
@@ -88,17 +122,18 @@ function decodePairs(letters) {
 }
 
 /** Encrypt even empty text into a nonempty, versioned container. Starts reset. */
-export function encryptExact(text, settings = DEFAULT_SETTINGS) {
+export function encryptExact(text, settings, options = {}) {
+  const profile = optionsProfile(options);
   const length = utf8ByteLength(text);
   const encoded = new TextEncoder().encode(text);
   const frame = new Uint8Array(FRAME_OVERHEAD + length);
-  frame.set(MAGIC, 0);
+  frame.set(profile.magic, 0);
   frame[4] = EXACT_FORMAT_VERSION;
   writeUint32(frame, 5, length);
   frame.set(encoded, HEADER_BYTES);
   const checksumOffset = HEADER_BYTES + length;
   writeUint32(frame, checksumOffset, crc32(frame.subarray(0, checksumOffset)));
-  return EXACT_PREFIX + transform(encodePairs(frame), settings);
+  return profile.prefix + profile.transform(encodePairs(frame), settings);
 }
 
 /**
@@ -107,15 +142,16 @@ export function encryptExact(text, settings = DEFAULT_SETTINGS) {
  * Metadata and CRC must match before fatal UTF-8 decoding. Success does not prove
  * who sent a message: CRC32 can be forged and Enigma is not modern cryptography.
  */
-export function decryptExact(container, settings = DEFAULT_SETTINGS) {
-  if (typeof container !== 'string' || container.length > MAX_EXACT_CIPHERTEXT_LENGTH ||
-      container.length < EXACT_PREFIX.length + 2 * FRAME_OVERHEAD || !container.startsWith(EXACT_PREFIX)) {
+export function decryptExact(container, settings, options = {}) {
+  const profile = optionsProfile(options);
+  if (typeof container !== 'string' || container.length > profile.limit ||
+      container.length < profile.prefix.length + 2 * FRAME_OVERHEAD || !container.startsWith(profile.prefix)) {
     throw new Error(DECRYPT_ERROR);
   }
-  const body = container.slice(EXACT_PREFIX.length);
+  const body = container.slice(profile.prefix.length);
   if (body.length % 2 !== 0 || !/^[A-Z]+$/.test(body)) throw new Error(DECRYPT_ERROR);
-  const frame = decodePairs(transform(body, settings));
-  if (!MAGIC.every((byte, index) => frame[index] === byte) || frame[4] !== EXACT_FORMAT_VERSION) {
+  const frame = decodePairs(profile.transform(body, settings));
+  if (!profile.magic.every((byte, index) => frame[index] === byte) || frame[4] !== EXACT_FORMAT_VERSION) {
     throw new Error(DECRYPT_ERROR);
   }
   const length = readUint32(frame, 5);
