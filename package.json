@@ -1,11 +1,11 @@
 {
   "name": "enigma-playground",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Статическая Enigma I для игр",
   "scripts": {
-    "test": "node --test tests/enigma.test.mjs",
+    "test": "node --test tests/enigma.test.mjs tests/exact-text.test.mjs",
     "start": "node scripts/serve.mjs"
   },
   "engines": { "node": ">=20" }

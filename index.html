@@ -26,7 +26,7 @@
           <div>
             <p class="eyebrow">Маленькая машина. Большая загадка.</p>
             <h1 id="page-title">Шифр для двоих.</h1>
-            <p class="intro-text">Задайте общий ключ, напишите сообщение и передайте шифртекст.<br class="desktop-break" /> Чтобы прочитать его, нужны те же настройки.</p>
+            <p class="intro-text">Задайте общий ключ, напишите сообщение и передайте шифртекст.<br class="desktop-break" /> Режим «Точный текст» возвращает русский текст, регистр и emoji.</p>
           </div>
           <div class="machine-badge" aria-label="Enigma I: 3 ротора, рефлектор B">
             <span>ENIGMA I</span>
@@ -95,6 +95,15 @@
               <div class="heading-label"><span class="section-number" aria-hidden="true">02</span><h2 id="message-title">Сообщение</h2></div>
               <span class="live-label">С исходных позиций</span>
             </div>
+            <div class="format-field">
+              <label for="text-format">Формат сообщения</label>
+              <select id="text-format" aria-describedby="format-help">
+                <option value="legacy" selected>A–Z / транслит</option>
+                <option value="exact">Точный текст</option>
+              </select>
+              <p id="format-help">Для прежних шифров — A–Z / транслит. Чтобы вернуть русский текст без потерь, выберите «Точный текст».</p>
+            </div>
+            <p class="exact-note" id="exact-note" hidden>Русский, ё/Ё, регистр, пробелы, переносы и emoji сохраняются. Текст UTF-8 кодируется в A–Z перед Enigma: это современная оболочка, которой не было у исторической машины.</p>
             <fieldset class="mode-switch">
               <legend class="sr-only">Операция</legend>
               <label><input type="radio" name="mode" value="encrypt" checked /><span>Зашифровать</span></label>
@@ -103,17 +112,21 @@
 
             <div class="text-label-row">
               <label for="message" id="input-label">Исходный текст</label>
-              <div class="small-actions"><button id="sample-text" class="text-button" type="button">Пример</button><button id="clear-text" class="text-button" type="button">Очистить</button></div>
+              <div class="small-actions"><button id="import-text" class="text-button" type="button" hidden>Загрузить .txt</button><input id="text-file" type="file" accept=".txt,text/plain" hidden /><button id="sample-text" class="text-button" type="button">Пример</button><button id="clear-text" class="text-button" type="button">Очистить</button></div>
             </div>
             <textarea id="message" rows="4" maxlength="10000" placeholder="Например, HELLO WORLD" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-describedby="message-rules input-error"></textarea>
             <div class="text-meta"><p id="message-rules">A–Z → верхний регистр. Пробелы, цифры и знаки сохраняются и не двигают роторы.</p><span id="input-count" aria-label="Количество символов">0 / 10 000</span></div>
-            <label class="checkbox-label" for="transliterate"><input type="checkbox" id="transliterate" /><span>Перевести русский текст в латиницу<span class="checkbox-help">Исходное русское написание не восстановится.</span></span></label>
+            <label class="checkbox-label" id="transliterate-control" for="transliterate"><input type="checkbox" id="transliterate" /><span>Перевести русский текст в латиницу<span class="checkbox-help">Исходное русское написание не восстановится.</span></span></label>
             <p class="error-message" id="input-error" role="alert" hidden></p>
+            <button id="process-exact" class="button button-dark exact-action" type="button" hidden>Зашифровать точный текст</button>
 
             <div class="output-heading"><label for="result" id="output-label">Шифртекст</label><span class="output-caption" id="output-caption">Тот же ключ → обратное преобразование</span></div>
             <textarea id="result" rows="4" readonly placeholder="Здесь появится результат" spellcheck="false" aria-describedby="output-caption" autocomplete="off"></textarea>
+            <pre id="exact-result" role="region" tabindex="0" aria-labelledby="output-label" aria-describedby="exact-state output-caption" hidden></pre>
+            <p class="action-status" id="exact-state" role="status" aria-live="polite" hidden></p>
             <div class="result-actions">
               <button id="copy-result" class="button button-outline" type="button" disabled>Копировать</button>
+              <button id="download-result" class="button button-outline" type="button" disabled hidden>Скачать .txt</button>
               <button id="reuse-result" class="button button-quiet" type="button" disabled title="Подставить результат и переключить операцию">Обратно <span aria-hidden="true">↶</span></button>
               <button id="share-telegram" class="button button-accent" type="button" disabled>В Telegram <span aria-hidden="true">↗</span></button>
             </div>
@@ -126,8 +139,11 @@
           <summary><span>Как это работает</span><span class="summary-plus" aria-hidden="true">+</span></summary>
           <div class="instructions-body">
             <div><h3>Один ключ у обоих</h3><p>Согласуйте порядок роторов, кольца, стартовые позиции и пары панели. Удобно экспортировать настройки в JSON и передать его отдельно. Получатель импортирует ключ и вставляет шифртекст в режиме «Расшифровать».</p></div>
-            <div><h3>Каждый раз с начала</h3><p>Ввод и изменение ключа сразу пересчитывают всё сообщение с исходных позиций. Шифрование и расшифровка — одна операция. Режим меняет подписи и разрешает делиться только шифртекстом.</p></div>
-            <div><h3>История с удобствами</h3><p>Enigma I: три разных ротора I–V, рефлектор B, кольца и двойной шаг. Регистр теряется. Сохранение пробелов, цифр и знаков, а также транслитерация — удобства этой страницы, которых не было у машины.</p></div>
+            <div><h3>Каждый раз с начала</h3><p>В A–Z / транслите ввод сразу пересчитывает всё сообщение с исходных позиций. В «Точном тексте» выберите действие и нажмите кнопку под сообщением. Любое изменение сбрасывает прежний результат. Сама Enigma выполняет одну и ту же операцию в обе стороны.</p></div>
+            <div><h3>История с удобствами</h3><p>Enigma I: три разных ротора I–V, рефлектор B, кольца и двойной шаг. В A–Z / транслите регистр теряется; сохранение пробелов, цифр и знаков и транслитерация — удобства этой страницы. Прежние шифры открывайте в том же формате.</p></div>
+            <div><h3>Точный текст — формат версии 1</h3><p>Оболочка ENIGMA-UTF8-1 обратимо кодирует UTF-8 в буквы перед шифрованием. При том же ключе восстановятся все символы, включая ё и emoji. До 10 000 байт исходного текста; шифртекст примерно вдвое длиннее. Для сохранения точных байтов, BOM и переносов загрузите UTF-8 файл .txt и скачайте результат. Загруженный текст сохраняется без изменений, пока вы не редактируете поле.</p></div>
+            <div><h3>Переносы строк и копирование</h3><p>Поле ввода браузера приводит CR/CRLF к LF. «Обратно» сохраняет расшифрованные переносы. Копирование передаёт исходные символы браузеру, но ОС или принимающее приложение могут менять переносы. Кнопка «Скачать .txt» сохраняет исходные байты UTF-8, включая пустой текст.</p></div>
+            <div><h3>Проверка, а не защита от подделки</h3><p>Строгий формат и контрольная сумма CRC32 помогают заметить неверный ключ или повреждение. При ошибке текст не показывается. Эта проверка не обеспечивает криптографическую аутентичность; успешная расшифровка не доказывает подлинность отправителя.</p></div>
             <div><h3>Только по вашему действию</h3><p>Сообщения и ключ не сохраняются. Ввод ничего не отправляет в сеть. Telegram получает только результат и публичную ссылку сайта: чат выбираете и отправку подтверждаете вы. Ключ и исходный текст в ссылку не входят.</p></div>
           </div>
         </details>
